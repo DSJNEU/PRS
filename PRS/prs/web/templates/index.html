@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PRS 监控台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --line: #dfe3e8;
+      --text: #1f2933;
+      --muted: #637083;
+      --blue: #2563eb;
+      --green: #168a5b;
+      --amber: #b7791f;
+      --red: #c2413a;
+      --ink: #111827;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 32px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+    button.warn { background: #fff8e8; color: var(--amber); border-color: #efcf8f; }
+    button:hover { filter: brightness(0.98); }
+    .grid { display: grid; gap: 16px; }
+    .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cols { grid-template-columns: 1.2fr 1fr; margin-top: 16px; align-items: start; }
+    section, .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .metric .label { color: var(--muted); font-size: 12px; }
+    .metric .value { margin-top: 8px; font-size: 26px; font-weight: 750; }
+    h2 { margin: 0 0 12px; font-size: 15px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { border-top: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: middle; }
+    th { color: var(--muted); font-size: 12px; font-weight: 700; }
+    td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .up, .running { background: #e9f8f1; color: var(--green); }
+    .down, .stopped { background: #fdeceb; color: var(--red); }
+    .suspect, .reconfiguring { background: #fff7e6; color: var(--amber); }
+    .initialized { background: #eef4ff; color: var(--blue); }
+    .progress { height: 8px; background: #e7ebf0; border-radius: 999px; overflow: hidden; margin-top: 12px; }
+    .progress > div { height: 100%; background: linear-gradient(90deg, var(--blue), var(--green)); width: 0; }
+    .log {
+      height: 230px;
+      overflow: auto;
+      background: #101820;
+      color: #d8dee9;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+    }
+    .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+    .small { color: var(--muted); font-size: 12px; }
+    @media (max-width: 900px) {
+      header { height: auto; min-height: 56px; align-items: flex-start; gap: 12px; flex-direction: column; padding: 14px 16px; }
+      main { padding: 16px; }
+      .metrics, .cols, .split { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PRS 弹性容错与资源调度监控台</h1>
+    <div class="toolbar">
+      <button class="primary" onclick="stepTraining(1)">执行一步</button>
+      <button onclick="stepTraining(8)">运行 8 步</button>
+      <button class="warn" onclick="simulateFailure()">模拟故障</button>
+      <button onclick="schedulerStep()">主动调度</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid metrics">
+      <div class="metric"><div class="label">训练状态</div><div class="value" id="status">--</div></div>
+      <div class="metric"><div class="label">训练步数</div><div class="value" id="step">--</div></div>
+      <div class="metric"><div class="label">当前损失</div><div class="value" id="loss">--</div></div>
+      <div class="metric"><div class="label">吞吐量 samples/s</div><div class="value" id="throughput">--</div></div>
+    </div>
+
+    <div class="grid cols">
+      <section>
+        <h2>集群节点</h2>
+        <table>
+          <thead><tr><th>节点</th><th>状态</th><th>GPU</th><th>GPU 利用率</th><th>显存</th></tr></thead>
+          <tbody id="nodes"></tbody>
+        </table>
+      </section>
+      <section>
+        <h2>当前流水线模板</h2>
+        <div id="templateSummary" class="small">--</div>
+        <div class="progress"><div id="balance"></div></div>
+        <table style="margin-top:12px">
+          <thead><tr><th>阶段</th><th>层</th><th>时延</th><th>显存</th></tr></thead>
+          <tbody id="templateStages"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="split">
+      <section>
+        <h2>检查点</h2>
+        <table>
+          <thead><tr><th>Step</th><th>类型</th><th>大小</th><th>Base</th></tr></thead>
+          <tbody id="checkpoints"></tbody>
+        </table>
+      </section>
+      <section>
+        <h2>主动调度</h2>
+        <div id="scheduler" class="small">--</div>
+        <table style="margin-top:12px">
+          <thead><tr><th>预测节点</th><th>置信度</th></tr></thead>
+          <tbody id="prediction"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="split">
+      <section>
+        <h2>MoE 专家适配</h2>
+        <div id="moe" class="small">--</div>
+        <table style="margin-top:12px">
+          <thead><tr><th>分组</th><th>专家</th><th>节点池</th><th>负载</th></tr></thead>
+          <tbody id="groups"></tbody>
+        </table>
+      </section>
+      <section>
+        <h2>系统日志</h2>
+        <div id="logs" class="log"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    let snapshot = null;
+
+    async function refresh() {
+      const res = await fetch("/api/snapshot");
+      snapshot = await res.json();
+      render(snapshot);
+    }
+
+    async function stepTraining(steps) {
+      await fetch("/api/training/step", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({steps})
+      });
+      await refresh();
+    }
+
+    async function simulateFailure() {
+      await fetch("/api/failure", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+      await refresh();
+    }
+
+    async function schedulerStep() {
+      await fetch("/api/scheduler/step", {method: "POST"});
+      await refresh();
+    }
+
+    function render(data) {
+      const training = data.training || {};
+      setText("status", training.status || "--");
+      document.getElementById("status").className = "value";
+      setText("step", training.step ?? "--");
+      setText("loss", num(training.current_loss, 4));
+      setText("throughput", num(training.throughput, 3));
+
+      renderNodes(data.nodes || []);
+      renderTemplate(data.current_template || {});
+      renderCheckpoints(data.checkpoints || []);
+      renderScheduler(data.scheduler || {});
+      renderMoe(data.moe || {});
+      renderLogs(data.logs || []);
+    }
+
+    function renderNodes(nodes) {
+      document.getElementById("nodes").innerHTML = nodes.map(n => `
+        <tr>
+          <td>${n.node_id}</td>
+          <td><span class="tag ${n.status}">${n.status}</span></td>
+          <td>${n.gpu_count}</td>
+          <td>${num(n.gpu_utilization, 1)}%</td>
+          <td>${num(n.memory_usage, 1)}%</td>
+        </tr>`).join("");
+    }
+
+    function renderTemplate(tpl) {
+      const stages = tpl.stage_layers || [];
+      setText("templateSummary", `${tpl.template_id || "--"} | 阶段 ${tpl.num_stages || 0} | 估计时延 ${num(tpl.estimated_latency, 2)} ms | 均衡分数 ${num(tpl.balance_score, 3)}`);
+      document.getElementById("balance").style.width = `${Math.max(0, Math.min(100, (1 - (tpl.balance_score || 0)) * 100))}%`;
+      document.getElementById("templateStages").innerHTML = stages.map((layers, idx) => `
+        <tr>
+          <td>${idx}</td>
+          <td>${layers[0]}-${layers[layers.length - 1]}</td>
+          <td>${num((tpl.stage_latencies || [])[idx], 2)}</td>
+          <td>${mb((tpl.stage_memories || [])[idx])}</td>
+        </tr>`).join("");
+    }
+
+    function renderCheckpoints(items) {
+      document.getElementById("checkpoints").innerHTML = items.slice().reverse().map(cp => `
+        <tr>
+          <td>${cp.step}</td>
+          <td>${cp.is_incremental ? "增量" : "完整"}</td>
+          <td>${kb(cp.size_bytes)}</td>
+          <td>${cp.base_step ?? "-"}</td>
+        </tr>`).join("");
+    }
+
+    function renderScheduler(scheduler) {
+      const decision = scheduler.last_decision;
+      setText("scheduler", decision ? `目标 ${decision.target_config.data_parallel}DP/${decision.target_config.pipeline_depth}PP，Liveput ${num(decision.expected_liveput, 2)}，动作：${decision.actions.join("；")}` : "暂无调度决策");
+      const pred = scheduler.last_prediction || {};
+      const nodes = pred.predicted_nodes || [];
+      const conf = pred.confidence || [];
+      document.getElementById("prediction").innerHTML = nodes.map((n, idx) => `
+        <tr><td>${n}</td><td>${num(conf[idx], 2)}</td></tr>`).join("");
+    }
+
+    function renderMoe(moe) {
+      setText("moe", `专家 ${moe.num_experts || 0}，副本 ${moe.total_replicas || 0}，本地 token 比例 ${num((moe.communication || {}).local_ratio, 2)}`);
+      document.getElementById("groups").innerHTML = (moe.groups || []).map(g => `
+        <tr><td>${g.group_id}</td><td>${g.experts.join(",")}</td><td>${g.nodes.join(",")}</td><td>${num(g.total_load, 2)}</td></tr>`).join("");
+    }
+
+    function renderLogs(logs) {
+      document.getElementById("logs").innerHTML = logs.slice().reverse().map(log => `[${log.timestamp}] ${log.level} ${log.message}`).join("<br>");
+    }
+
+    function setText(id, value) { document.getElementById(id).textContent = value; }
+    function num(value, digits) { return value === null || value === undefined ? "--" : Number(value).toFixed(digits); }
+    function kb(value) { return value ? `${(value / 1024).toFixed(1)} KB` : "0 KB"; }
+    function mb(value) { return value ? `${(value / 1024 / 1024).toFixed(0)} MB` : "0 MB"; }
+
+    refresh();
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>

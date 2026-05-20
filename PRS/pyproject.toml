@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prs"
+version = "1.0.0"
+description = "分布式训练弹性容错与资源调度实验系统"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "PRS"}]
+dependencies = [
+    "flask>=3.0",
+]
+
+[project.optional-dependencies]
+torch = ["torch>=2.0"]
+experiments = [
+    "torch>=2.0",
+    "transformers>=4.40",
+    "datasets>=2.18",
+]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+prs-web = "prs.web.monitor:main"
+prs-train = "prs.experiments.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["prs*"]
+
+[tool.setuptools.package-data]
+"prs.web" = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

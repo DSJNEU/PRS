@@ -1,0 +1,39 @@
+{
+  "training": {
+    "global_batch_size": 32,
+    "microbatch_size": 4,
+    "precision": "fp32"
+  },
+  "checkpoint": {
+    "interval": 4,
+    "max_to_keep": 12,
+    "enable_incremental": true,
+    "enable_async": false
+  },
+  "elastic": {
+    "nodes": 4,
+    "fault_tolerance_threshold": 1
+  },
+  "scheduler": {
+    "scheduling_interval": 120.0,
+    "forecast_horizon": 4
+  },
+  "moe": {
+    "enabled": true,
+    "num_experts": 8,
+    "node_capacity": 4
+  },
+  "real_training": {
+    "model_source": "synthetic",
+    "hf_model_name": "",
+    "total_steps": 20,
+    "batch_size": 2,
+    "sequence_length": 64,
+    "hidden_size": 128,
+    "num_layers": 2,
+    "num_heads": 4,
+    "learning_rate": 0.0003,
+    "checkpoint_interval": 5,
+    "scheduler_interval_steps": 10
+  }
+}
